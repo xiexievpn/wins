@@ -122,7 +122,6 @@ def fetch_config_data(uuid):
             f.write(f"Response Headers: {response.headers}\n")
             f.write(f"Response Text: {response.text}\n")
 
-        # 确认响应文本不为空
         if response.text.strip() == "":
             messagebox.showerror("Error", "The server returned empty content, please try again later")
             return
