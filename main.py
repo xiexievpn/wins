@@ -331,7 +331,7 @@ login_window.title("login")
 login_window.geometry("300x200")
 login_window.iconbitmap("favicon.ico")
 
-label_uuid = tk.Label(login_window, text="p:")
+label_uuid = tk.Label(login_window, text="your access code:")
 label_uuid.pack(pady=10)
 
 entry_uuid = tk.Entry(login_window)
