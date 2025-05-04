@@ -83,8 +83,8 @@ def on_chk_change(*args):
 def set_general_proxy():
     global proxy_state
     try:
-        subprocess.run(["cmd", "/c", "close.bat"], capture_output=True, text=True, check=True)
-        subprocess.run(["cmd", "/c", "internet.bat"], capture_output=True, text=True, check=True)
+        subprocess.run(["cmd", "/c", resource_path("close.bat")], capture_output=True, text=True, check=True)
+        subprocess.run(["cmd", "/c", resource_path("internet.bat")], capture_output=True, text=True, check=True)
         messagebox.showinfo("Information", "VPN setup successfully")
         btn_general_proxy.config(state="disabled")
         btn_close_proxy.config(state="normal")
@@ -96,7 +96,7 @@ def set_general_proxy():
 def close_proxy():
     global proxy_state
     try:
-        subprocess.run(["cmd", "/c", "close.bat"], capture_output=True, text=True, check=True)
+        subprocess.run(["cmd", "/c", resource_path("close.bat")], capture_output=True, text=True, check=True)
         messagebox.showinfo("Information", "VPN is closed")
         btn_close_proxy.config(state="disabled")
         btn_general_proxy.config(state="normal")
@@ -111,7 +111,7 @@ def on_closing():
     if close_state == "normal":
         if general_state == "disabled":
             try:
-                subprocess.run(["cmd", "/c", "close.bat"], capture_output=True, text=True, check=True)
+                subprocess.run(["cmd", "/c", resource_path("close.bat")], capture_output=True, text=True, check=True)
                 messagebox.showinfo("Information", "VPN is temporarily closed")
             except subprocess.CalledProcessError as e:
                 messagebox.showerror("Error", f"Failed to close proxy on exit: {e.stderr}")
@@ -425,10 +425,7 @@ def fetch_config_data(uuid):
                 ]
             }
 
-            current_dir = os.getcwd()
-
-            # 写出 config.json
-            with open("config.json", "w", encoding="utf-8") as config_file:
+            with open(resource_path("config.json"), "w", encoding="utf-8") as config_file:
                 json.dump(config_data, config_file, indent=4)
 
         except Exception as e:
