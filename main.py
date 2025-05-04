@@ -4,6 +4,7 @@ import subprocess, os, sys, ctypes
 import requests
 import json
 import webbrowser
+import platform
 
 def is_admin():
     try:
@@ -15,6 +16,30 @@ if not is_admin():
     ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
     sys.exit(0)
 
+def get_persistent_path(filename):
+    if platform.system() == "Windows":
+        appdata = os.getenv('APPDATA')
+        your_app_folder = os.path.join(appdata, "XieXieVPN")
+        os.makedirs(your_app_folder, exist_ok=True)
+        return os.path.join(your_app_folder, filename)
+    else:
+        home = os.path.expanduser("~")
+        your_app_folder = os.path.join(home, ".XieXieVPN")
+        os.makedirs(your_app_folder, exist_ok=True)
+        return os.path.join(your_app_folder, filename)
+
+AUTOSTART_FILE = get_persistent_path("autostart_state.txt")
+
+def save_autostart_state(state: bool):
+    with open(AUTOSTART_FILE, "w", encoding="utf-8") as f:
+        f.write("1" if state else "0")
+
+def load_autostart_state() -> bool:
+    if os.path.exists(AUTOSTART_FILE):
+        with open(AUTOSTART_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip() == "1"
+    return False
+
 def get_exe_dir():
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
@@ -22,14 +47,29 @@ def get_exe_dir():
         return os.path.dirname(os.path.abspath(__file__))
 
 exe_dir = get_exe_dir()
-os.chdir(exe_dir)
 
 proxy_state = 0
 
 def toggle_autostart():
     global proxy_state
     try:
-        result = subprocess.run(["cmd", "/c", "createplan.bat", str(proxy_state)], capture_output=True, text=True, check=True)
+        save_autostart_state(chk_autostart.get())
+        exe_path = sys.executable
+        arg1 = "1"
+        tr_value = f"\"{exe_path}\" {arg1}"
+        cmd = [
+                "schtasks",
+                "/Create",
+                "/SC", "ONLOGON",
+                "/TN", "simplevpn",
+                "/TR", tr_value,
+                "/RL", "HIGHEST",
+                "/F",
+        ]
+        try:
+             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+               print(e.stderr)
         if chk_autostart.get():
             subprocess.run(['schtasks', '/Change', '/TN', 'simplevpn', '/ENABLE'], capture_output=True, text=True, check=True)
         else:
@@ -78,14 +118,20 @@ def on_closing():
     window.destroy()
 
 def save_uuid(uuid):
-    with open("uuid.txt", "w") as file:
-        file.write(uuid)
+    with open(get_persistent_path("uuid.txt"), "w", encoding="utf-8") as f:
+        f.write(uuid)
 
 def load_uuid():
-    if os.path.exists("uuid.txt"):
-        with open("uuid.txt", "r") as file:
-            return file.read().strip()
+    path_ = get_persistent_path("uuid.txt")
+    if os.path.exists(path_):
+        with open(path_, "r", encoding="utf-8") as f:
+            return f.read().strip()
     return None
+
+def remove_uuid_file():
+    path_ = get_persistent_path("uuid.txt")
+    if os.path.exists(path_):
+        os.remove(path_)
 
 def check_login():
     entered_uuid = entry_uuid.get().strip()
@@ -96,20 +142,160 @@ def check_login():
                 save_uuid(entered_uuid)
             login_window.destroy()
             show_main_window(entered_uuid)
-        elif response.status_code == 401:
-            messagebox.showerror("Error", "invalid code")
-        elif response.status_code == 403:
-            messagebox.showerror("Error", "This code has expired")
         else:
-            messagebox.showerror("Error", "Server Error")
+            remove_uuid_file()
+            if response.status_code == 401:
+                messagebox.showerror("Error", "invalid code")
+            elif response.status_code == 403:
+                messagebox.showerror("Error", "This code has expired")
+            else:
+                messagebox.showerror("Error", "Server Error")
     except requests.exceptions.RequestException as e:
+        remove_uuid_file()
         messagebox.showerror("Error", f"Unable to connect to server: {e}")
 
-import os
+def on_remember_changed(*args):
+    if not chk_remember.get():
+        remove_uuid_file()
+
+def do_adduser(uuid):
+    try:
+        requests.post(
+            "https://vvv.xiexievpn.com/adduser",
+            json={"code": uuid},
+            timeout=2
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"{e}")
+
+def poll_getuserinfo(uuid):
+    try:
+        response = requests.post(
+            "https://vvv.xiexievpn.com/getuserinfo",
+            json={"code": uuid},
+            headers={"Content-Type": "application/json"}
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        v2rayurl = response_data.get("v2rayurl", "")
+        zone = response_data.get("zone", "")
+
+        if v2rayurl:
+            parse_and_write_config(v2rayurl)
+            return
+        else:
+            window.after(3000, lambda: poll_getuserinfo(uuid))
+
+    except requests.exceptions.RequestException as e:
+        window.after(3000, lambda: poll_getuserinfo(uuid))
+
+def parse_and_write_config(url_string):
+    try:
+        # 以 vless:// 开头
+        if not url_string.startswith("vless://"):
+            messagebox.showerror("Error", "not valid data）")
+            return
+
+        uuid = url_string.split("@")[0].split("://")[1]
+        domain = url_string.split("@")[1].split(":")[0].split(".")[0]
+        jsonport_string = url_string.split(":")[2].split("?")[0]
+        jsonport = int(jsonport_string)
+        sni = url_string.split("sni=")[1].split("#")[0].replace("www.", "")
+
+        config_data = {
+            "log": {
+                "loglevel": "error"
+            },
+            "routing": {
+                "domainStrategy": "IPIfNonMatch",
+                "rules": [
+                    {
+                        "type": "field",
+                        "domain": ["geosite:category-ads-all"],
+                        "outboundTag": "block"
+                    },
+                    {
+                        "type": "field",
+                        "protocol": ["bittorrent"],
+                        "outboundTag": "direct"
+                    },
+                    {
+                        "type": "field",
+                        "domain": ["geosite:geolocation-!cn"],
+                        "outboundTag": "proxy"
+                    },
+                    {
+                        "type": "field",
+                        "ip": ["geoip:cn", "geoip:private"],
+                        "outboundTag": "proxy"
+                    }
+                ]
+            },
+            "inbounds": [
+                {
+                    "listen": "127.0.0.1",
+                    "port": 10808,
+                    "protocol": "socks"
+                },
+                {
+                    "listen": "127.0.0.1",
+                    "port": 1080,
+                    "protocol": "http"
+                }
+            ],
+            "outbounds": [
+                {
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [
+                            {
+                                "address": f"{domain}.rocketchats.xyz",
+                                "port": 443,
+                                "users": [
+                                    {
+                                        "id": uuid,
+                                        "encryption": "none",
+                                        "flow": "xtls-rprx-vision"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "show": False,
+                            "fingerprint": "chrome",
+                            "serverName": f"{domain}.rocketchats.xyz",
+                            "publicKey": "mUzqKeHBc-s1m03iD8Dh1JoL2B9JwG5mMbimEoJ523o",
+                            "shortId": "",
+                            "spiderX": ""
+                        }
+                    },
+                    "tag": "proxy"
+                },
+                {
+                    "protocol": "freedom",
+                    "tag": "direct"
+                },
+                {
+                    "protocol": "blackhole",
+                    "tag": "block"
+                }
+            ]
+        }
+
+        with open(resource_path("config.json"), "w", encoding="utf-8") as config_file:
+            json.dump(config_data, config_file, indent=4)
+
+    except Exception as e:
+        print(f"{e}")
+        messagebox.showerror("Error", f"{e}")
 
 def fetch_config_data(uuid):
     try:
-        print(f"传递的 UUID: {uuid}")
+        print(f"{uuid}")
 
         # 请求服务器获取配置数据
         response = requests.post(
@@ -119,61 +305,42 @@ def fetch_config_data(uuid):
         )
         response.raise_for_status()
 
-        # 打印响应的状态码和详细信息（调试用）
         print(f"Response Status Code: {response.status_code}")
         print(f"Response Headers: {response.headers}")
         print(f"Response Text: {response.text}")
 
-        # -- 修改1：将响应内容保存到文件时，推荐也保存原JSON，便于排查 --
         try:
-            response_data = response.json()  # 尝试解析 JSON
-            # 将 JSON 数据用更友好的方式写入文件
+            response_data = response.json() 
             with open("server_response.txt", "w", encoding="utf-8") as f:
                 f.write(f"Response Status Code: {response.status_code}\n")
                 f.write(f"Response Headers: {response.headers}\n")
                 f.write("Response JSON:\n")
                 json.dump(response_data, f, indent=4, ensure_ascii=False)
         except json.JSONDecodeError:
-            # 如果服务端确实返回的不是 JSON，或者出错
-            print("服务器返回的数据无法解析为 JSON。")
-            messagebox.showerror("Error", "服务器返回的数据无法解析为 JSON。")
+            messagebox.showerror("Error", "Not JSON。")
             return
-
-        # 如果响应状态码不是 200，就直接报错
+            
         if response.status_code != 200:
-            print(f"获取配置数据失败，状态码: {response.status_code}")
-            messagebox.showerror("Error", f"获取配置数据失败，状态码: {response.status_code}")
+            print(f"{response.status_code}")
+            messagebox.showerror("Error", f"{response.status_code}")
             return
 
-        # -- 修改2：从返回的 JSON 数据中获取 "v2rayurl" 字段 --
         if "v2rayurl" not in response_data:
-            print("服务器返回的 JSON 中没有 v2rayurl 字段")
-            messagebox.showerror("Error", "服务器返回的 JSON 中没有 v2rayurl 字段")
+            messagebox.showerror("Error", "No valid data")
             return
 
         url_string = response_data["v2rayurl"].strip()
         if not url_string.startswith("vless://"):
-            # 如果 v2rayurl 并不是 vless:// 开头，可以进行相应处理
-            print("服务器返回的数据不符合预期格式（不是 vless:// 开头）")
-            messagebox.showerror("Error", "服务器返回的数据不符合预期格式（不是 vless:// 开头）")
+            messagebox.showerror("Error", "No valid data")
             return
 
-        # -- 修改3：保持你原有的 VLESS URL 解析逻辑 --
         try:
-            # 示例：vless://<UUID>@abcd.rocketchats.xyz:443?security=reality&sni=abcd.rocketchats.xyz#...
-            # 下面演示了类似的拆分方法
             uuid = url_string.split("@")[0].split("://")[1]
             domain = url_string.split("@")[1].split(":")[0].split(".")[0]
             jsonport_string = url_string.split(":")[2].split("?")[0]
             jsonport = int(jsonport_string)
             sni = url_string.split("sni=")[1].split("#")[0].replace("www.", "")
-
-            print(f"提取的 UUID: {uuid}")
-            print(f"提取的 Domain: {domain}")
-            print(f"提取的 Port: {jsonport}")
-            print(f"提取的 SNI: {sni}")
-
-            # 构建 config.json 的数据结构
+            
             config_data = {
                 "log": {
                     "loglevel": "error"
@@ -259,27 +426,51 @@ def fetch_config_data(uuid):
             }
 
             current_dir = os.getcwd()
-            print(f"当前工作目录: {current_dir}")
 
             # 写出 config.json
             with open("config.json", "w", encoding="utf-8") as config_file:
                 json.dump(config_data, config_file, indent=4)
-            print("config.json 文件已成功创建")
 
         except Exception as e:
-            print(f"提取配置信息时发生错误: {e}")
-            messagebox.showerror("Error", f"提取配置信息时发生错误: {e}")
+            print(f"{e}")
+            messagebox.showerror("Error", f"{e}")
 
     except requests.exceptions.RequestException as e:
-        print(f"无法连接到服务器: {e}")
+        print(f"{e}")
         messagebox.showerror("Error", f"无法连接到服务器: {e}")
+
+def fetch_config_data(uuid):
+    try:
+        response = requests.post(
+            "https://vvv.xiexievpn.com/getuserinfo",
+            json={"code": uuid},
+            headers={"Content-Type": "application/json"}
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        v2rayurl = response_data.get("v2rayurl", "")
+        zone = response_data.get("zone", "")
+
+        if not v2rayurl and not zone:
+            do_adduser(uuid)
+            window.after(10, lambda: poll_getuserinfo(uuid))
+
+        elif not v2rayurl:
+            window.after(10, lambda: poll_getuserinfo(uuid))
+
+        else:
+            parse_and_write_config(v2rayurl)
+
+    except requests.exceptions.RequestException as e:
+        print(f"{e}")
+        messagebox.showerror("Error", f"{e}")
 
 def show_main_window(uuid):
     global window, btn_general_proxy, btn_close_proxy, chk_autostart
     window = tk.Tk()
     window.title("xiexie vpn")
     window.geometry("300x250")
-    window.iconbitmap("favicon.ico")
+    window.iconbitmap(resource_path("favicon.ico"))
 
     window.protocol("WM_DELETE_WINDOW", on_closing)
 
@@ -289,15 +480,8 @@ def show_main_window(uuid):
     btn_close_proxy.pack(pady=10)
 
     chk_autostart = tk.BooleanVar()
+    chk_autostart.set(load_autostart_state())
     chk_autostart.trace_add("write", on_chk_change)
-    try:
-        result = subprocess.run(["schtasks", "/Query", "/TN", "simplevpn"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-        if "Enabled" in result.stdout:
-            chk_autostart.set(True)
-        else:
-            chk_autostart.set(False)
-    except subprocess.CalledProcessError:
-        chk_autostart.set(False)
 
     chk_autostart_button = tk.Checkbutton(window, text="autostart", variable=chk_autostart, command=toggle_autostart)
     chk_autostart_button.pack(pady=10)
