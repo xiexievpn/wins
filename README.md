@@ -6,5 +6,3 @@ The win client of Xiexie VPN, you can use PyInstaller to make above code into a 
    
 3. In bash command line as an administrator, switch to the source code directory, then run the following command:
 curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py & python get-pip.py & pip install pyinstaller & pyinstaller --onefile --noconsole --add-data "favicon.ico;." --add-data "close.bat;." --add-data "internet.bat;." --add-data "xray.exe;." --add-data "geoip.dat;." --add-data "geosite.dat;." --name "xiexievpn" --icon "favicon.ico" main.py
-
-4. there should be a exe file under "source code directory/dist" ,move it to source code directory, then run it.
