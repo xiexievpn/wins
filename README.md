@@ -1,4 +1,4 @@
-xiexievpn.com
+Xiexie VPN – https://xiexievpn.com
 
 
 The win client of Xiexie VPN, you can use PyInstaller to make above code into a exe file:
