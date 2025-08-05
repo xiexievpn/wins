@@ -1,7 +1,7 @@
 Xiexie VPN – https://xiexievpn.com
 
 
-The win client of Xiexie VPN, you can use PyInstaller to make above code into a exe file:
+You can use PyInstaller to convert the above code into an EXE file for the Windows client of Xiexie VPN:
 
 1. Install Python 3 environment, download and install directly from the official website https://www.python.org/downloads/, be sure to check "Add Python to PATH" during installation
    
