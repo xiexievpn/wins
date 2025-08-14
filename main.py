@@ -5,6 +5,14 @@ import requests
 import json
 import webbrowser
 import platform
+import urllib.parse
+
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 
 def is_admin():
     try:
@@ -435,7 +443,7 @@ def show_main_window(uuid):
 login_window = tk.Tk()
 login_window.title("login")
 login_window.geometry("300x200")
-login_window.iconbitmap("favicon.ico")
+login_window.iconbitmap(resource_path("favicon.ico"))
 
 label_uuid = tk.Label(login_window, text="your access code:")
 label_uuid.pack(pady=10)
@@ -469,5 +477,6 @@ if saved_uuid:
     check_login()
 
 login_window.mainloop()
+
 
 
